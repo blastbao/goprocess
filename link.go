@@ -15,13 +15,17 @@ func init() {
 
 // a processLink is an internal bookkeeping datastructure.
 // it's used to form a relationship between two processes.
-// It is mostly for keeping memory usage down (letting
-// children close and be garbage-collected).
+// It is mostly for keeping memory usage down (letting children close and be garbage-collected).
+//
+//
+//
 type processLink struct {
 	// guards all fields.
 	// DO NOT HOLD while holding process locks.
 	// it may be slow, and could deadlock if not careful.
 	sync.Mutex
+
+
 	parent Process
 	child  Process
 }
@@ -33,7 +37,7 @@ func newProcessLink(p, c Process) *processLink {
 	}
 }
 
-// Closing returns whether the child is closing
+// ChildClosing returns whether the child is closing
 func (pl *processLink) ChildClosing() <-chan struct{} {
 	// grab a hold of it, and unlock, as .Closing may block.
 	pl.Lock()
@@ -46,6 +50,7 @@ func (pl *processLink) ChildClosing() <-chan struct{} {
 	return child.Closing()
 }
 
+// ChildClosed returns whether the child is closed
 func (pl *processLink) ChildClosed() <-chan struct{} {
 	// grab a hold of it, and unlock, as .Closed may block.
 	pl.Lock()
@@ -58,6 +63,7 @@ func (pl *processLink) ChildClosed() <-chan struct{} {
 	return child.Closed()
 }
 
+// ChildClose close the child
 func (pl *processLink) ChildClose() {
 	// grab a hold of it, and unlock, as .Closed may block.
 	pl.Lock()

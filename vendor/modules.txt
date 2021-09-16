@@ -1,0 +1,4 @@
+# github.com/jbenet/go-cienv v0.1.0
+github.com/jbenet/go-cienv
+github.com/jbenet/go-cienv/jenkins
+github.com/jbenet/go-cienv/travis

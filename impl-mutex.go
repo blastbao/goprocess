@@ -34,41 +34,53 @@ func newProcess(tf TeardownFunc) *process {
 }
 
 func (p *process) WaitFor(q Process) {
+	// 参数检查
 	if q == nil {
 		panic("waiting for nil process")
 	}
 
+	// 加锁
 	p.Lock()
 	defer p.Unlock()
 
+	// 检查 p 是否已经关闭
 	select {
 	case <-p.Closed():
 		panic("Process cannot wait after being closed")
 	default:
 	}
 
+	// 构造进程关系
 	pl := newProcessLink(p, q)
+
+	// 初始化等待列表
 	if p.waitfors == nil {
-		// This may be nil when we're closing. In close, we'll keep
-		// reading this map till it stays nil.
+		// This may be nil when we're closing.
+		// In close, we'll keep reading this map till it stays nil.
 		p.waitfors = make(map[*processLink]struct{}, 1)
 	}
+
+	// 添加到等待列表
 	p.waitfors[pl] = struct{}{}
+
+	//
 	go pl.AddToChild()
 }
 
 func (p *process) AddChildNoWait(child Process) {
+	// 参数检查
 	if child == nil {
 		panic("adding nil child process")
 	}
-
+	// 加锁
 	p.Lock()
 	defer p.Unlock()
 
+	// 检查 p 是否正在关闭
 	select {
 	case <-p.Closing():
-		// Either closed or closing, close child immediately. This is
-		// correct because we aren't asked to _wait_ on this child.
+		// Either closed or closing, close child immediately.
+		// This is correct because we aren't asked to _wait_ on this child.
 		go child.Close()
 		// Wait for the child to start closing so the child is in the
 		// "correct" state after this function finishes (see #17).
@@ -77,8 +89,13 @@ func (p *process) AddChildNoWait(child Process) {
 	default:
 	}
 
+	// 构造进程关系
 	pl := newProcessLink(p, child)
+
+	// 添加到 Children 列表
 	p.children[pl] = struct{}{}
+
+	//
 	go pl.AddToChild()
 }
 
@@ -92,6 +109,8 @@ func (p *process) AddChild(child Process) {
 
 	pl := newProcessLink(p, child)
 
+
+	// 检查 p 是否已经关闭
 	select {
 	case <-p.Closed():
 		// AddChild must not be called on a dead process. Maybe that's
@@ -100,6 +119,7 @@ func (p *process) AddChild(child Process) {
 	default:
 	}
 
+	// 检查 p 是否正在关闭
 	select {
 	case <-p.Closing():
 		// Already closing, close child in background.
@@ -113,12 +133,15 @@ func (p *process) AddChild(child Process) {
 		p.children[pl] = struct{}{}
 	}
 
+	// 添加到等待列表
 	if p.waitfors == nil {
 		// This may be be nil when we're closing. In close, we'll keep
 		// reading this map till it stays nil.
 		p.waitfors = make(map[*processLink]struct{}, 1)
 	}
 	p.waitfors[pl] = struct{}{}
+
+	//
 	go pl.AddToChild()
 }
 
@@ -196,11 +219,15 @@ func (p *process) Err() error {
 func (p *process) doClose() {
 	// this function is only be called once (protected by p.Lock()).
 	// and it will panic (on closing channels) otherwise.
+	//
+	// 本函数只能执行一次，重复关闭管道会 panic
 
+	// 触发 `正在关闭` 信号
 	close(p.closing) // signal that we're shutting down (Closing)
 
-	// We won't add any children after we start closing so we can do this
-	// once.
+	// We won't add any children after we start closing so we can do this once.
+	//
+	// 关闭所有 children processes
 	for plc, _ := range p.children {
 		child := plc.Child()
 		if child != nil { // check because child may already have been removed.
@@ -212,8 +239,11 @@ func (p *process) doClose() {
 	}
 	p.children = nil // clear them. release memory.
 
+
 	// We may repeatedly continue to add waiters while we wait to close so
 	// we have to do this in a loop.
+	//
+	// 等待所有 waitfor processes 关闭
 	for len(p.waitfors) > 0 {
 		// we must be careful not to iterate over waitfors directly, as it may
 		// change under our feet.
@@ -231,12 +261,18 @@ func (p *process) doClose() {
 		}
 	}
 
+	// 回调
 	if p.teardown != nil {
 		p.closeErr = p.teardown() // actually run the close logic (ok safe to teardown)
 	}
+
+	// 触发 `已关闭` 信号
 	close(p.closed) // signal that we're shut down (Closed)
 
+
 	// go remove all the parents from the process links. optimization.
+	//
+	// 对于所有的 parent processes ，从其 waitfors/children 列表中移除
 	go func(waiters []*processLink) {
 		for _, pl := range waiters {
 			pl.ClearChild()
